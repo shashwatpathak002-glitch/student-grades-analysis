@@ -6,6 +6,10 @@ import seaborn as sns
 import plotly.express as px
 import plotly.graph_objects as go
 from io import StringIO
+import hashlib
+import json
+import os
+from datetime import datetime
 
 # Page Configuration
 st.set_page_config(
@@ -14,6 +18,77 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Initialize session state for authentication
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
+if 'username' not in st.session_state:
+    st.session_state['username'] = ''
+if 'user_data' not in st.session_state:
+    st.session_state['user_data'] = pd.DataFrame()
+
+# Simple user database (in production, use proper database)
+USERS_FILE = 'users.json'
+
+def load_users():
+    if os.path.exists(USERS_FILE):
+        with open(USERS_FILE, 'r') as f:
+            return json.load(f)
+    return {}
+
+def save_users(users):
+    with open(USERS_FILE, 'w') as f:
+        json.dump(users, f)
+
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def login_page():
+    st.markdown('<h1 style="text-align: center; color: #1E88E5;">📊 Student Grades Analysis</h1>', unsafe_allow_html=True)
+    st.markdown('<h3 style="text-align: center;">Login / Register</h3>', unsafe_allow_html=True)
+    
+    tab1, tab2 = st.tabs(["🔑 Login", "✨ Register"])
+    
+    with tab1:
+        st.subheader("Login to Your Account")
+        login_username = st.text_input("Username", key="login_user")
+        login_password = st.text_input("Password", type="password", key="login_pass")
+        
+        if st.button("🔓 Login", use_container_width=True):
+            users = load_users()
+            if login_username in users:
+                if users[login_username]['password'] == hash_password(login_password):
+                    st.session_state['logged_in'] = True
+                    st.session_state['username'] = login_username
+                    st.success(f"Welcome back, {login_username}!")
+                    st.rerun()
+                else:
+                    st.error("❌ Incorrect password")
+            else:
+                st.error("❌ Username not found")
+    
+    with tab2:
+        st.subheader("Create New Account")
+        reg_username = st.text_input("Choose Username", key="reg_user")
+        reg_password = st.text_input("Choose Password", type="password", key="reg_pass")
+        reg_password2 = st.text_input("Confirm Password", type="password", key="reg_pass2")
+        
+        if st.button("✨ Register", use_container_width=True):
+            if not reg_username or not reg_password:
+                st.error("⚠️ Please fill all fields")
+            elif reg_password != reg_password2:
+                st.error("⚠️ Passwords don't match")
+            else:
+                users = load_users()
+                if reg_username in users:
+                    st.error("⚠️ Username already exists")
+                else:
+                    users[reg_username] = {
+                        'password': hash_password(reg_password),
+                        'created_at': str(datetime.now())
+                    }
+                    save_users(users)
+                    st.success("✅ Account created! Please login.")
 
 # Custom CSS
 st.markdown("""
@@ -38,9 +113,22 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Check if user is logged in
+if not st.session_state['logged_in']:
+    login_page()
+    st.stop()
+
 # Title
 st.markdown('<h1 class="main-header">📊 Student Grades Analysis Dashboard</h1>', unsafe_allow_html=True)
-st.markdown('<p style="text-align: center; color: gray;">Created by Shashwat Pathak</p>', unsafe_allow_html=True)
+st.markdown(f'<p style="text-align: center; color: gray;">Created by Shashwat Pathak | Welcome, {st.session_state["username"]}</p>', unsafe_allow_html=True)
+
+# Logout button in sidebar
+if st.sidebar.button("🚪 Logout"):
+    st.session_state['logged_in'] = False
+    st.session_state['username'] = ''
+    st.session_state['user_data'] = pd.DataFrame()
+    st.rerun()
+
 st.markdown("---")
 
 # Function to generate sample dataset
@@ -90,36 +178,126 @@ def generate_sample_data(n_students=500):
     
     return df
 
+# Manual Data Entry Form
+def add_student_manually():
+    st.subheader("➕ Add Student Data Manually")
+    
+    with st.form("student_entry_form"):
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            student_id = st.text_input("Student ID", value=f"STU{len(st.session_state['user_data'])+1:04d}")
+            name = st.text_input("Student Name")
+            gender = st.selectbox("Gender", ["Male", "Female", "Other"])
+        
+        with col2:
+            study_hours = st.number_input("Study Hours Per Day", 0.0, 12.0, 5.0, 0.5)
+            attendance = st.number_input("Attendance %", 0.0, 100.0, 75.0, 1.0)
+            parent_edu = st.selectbox("Parent Education", ["High School", "Bachelor", "Master", "PhD"])
+        
+        with col3:
+            internet = st.selectbox("Internet Access", ["Yes", "No"])
+            extra_class = st.selectbox("Extra Classes", ["Yes", "No"])
+        
+        st.markdown("### Subject Marks")
+        col4, col5, col6, col7, col8 = st.columns(5)
+        
+        with col4:
+            math = st.number_input("Mathematics", 0.0, 100.0, 70.0, 0.5)
+        with col5:
+            science = st.number_input("Science", 0.0, 100.0, 70.0, 0.5)
+        with col6:
+            english = st.number_input("English", 0.0, 100.0, 70.0, 0.5)
+        with col7:
+            history = st.number_input("History", 0.0, 100.0, 70.0, 0.5)
+        with col8:
+            cs = st.number_input("Computer Science", 0.0, 100.0, 70.0, 0.5)
+        
+        submitted = st.form_submit_button("✅ Add Student", use_container_width=True)
+        
+        if submitted:
+            total = math + science + english + history + cs
+            average = total / 5
+            
+            if average >= 80:
+                grade = 'A+'
+            elif average >= 70:
+                grade = 'A'
+            elif average >= 60:
+                grade = 'B'
+            elif average >= 50:
+                grade = 'C'
+            elif average >= 40:
+                grade = 'D'
+            else:
+                grade = 'F'
+            
+            pass_status = 'Pass' if average >= 40 else 'Fail'
+            
+            new_student = {
+                'Student_ID': student_id,
+                'Name': name,
+                'Gender': gender,
+                'Study_Hours_Per_Day': study_hours,
+                'Attendance_Percentage': attendance,
+                'Parent_Education': parent_edu,
+                'Internet_Access': internet,
+                'Extra_Classes': extra_class,
+                'Mathematics': math,
+                'Science': science,
+                'English': english,
+                'History': history,
+                'Computer_Science': cs,
+                'Total_Marks': total,
+                'Average_Marks': round(average, 2),
+                'Grade': grade,
+                'Pass_Status': pass_status
+            }
+            
+            st.session_state['user_data'] = pd.concat([
+                st.session_state['user_data'],
+                pd.DataFrame([new_student])
+            ], ignore_index=True)
+            
+            st.success(f"✅ Student {name} added successfully!")
+            st.balloons()
+
 # Sidebar
 st.sidebar.header("📁 Data Source")
-data_option = st.sidebar.radio("Choose data source:", ["Use Sample Data", "Upload Your Own CSV"])
+data_option = st.sidebar.radio("Choose data source:", ["Use Sample Data", "Upload CSV", "Use My Data (Manual Entry)"])
 
-if data_option == "Upload Your Own CSV":
+if data_option == "Upload CSV":
     uploaded_file = st.sidebar.file_uploader("Upload CSV file", type=['csv'])
     if uploaded_file is not None:
         df = pd.read_csv(uploaded_file)
         st.sidebar.success("File uploaded successfully!")
     else:
-        st.info("☝ Upload a CSV file to get started, or switch to Sample Data.")
+        st.info("☝ Upload a CSV file to get started, or switch to another option.")
         st.stop()
+elif data_option == "Use My Data (Manual Entry)":
+    if len(st.session_state['user_data']) == 0:
+        st.info("ℹ️ No manual data yet. Add students below, then refresh to see analysis.")
+        add_student_manually()
+        st.stop()
+    else:
+        df = st.session_state['user_data'].copy()
+        st.sidebar.success(f"✅ Using your manual data ({len(df)} students)")
+        
+        # Show add more students option
+        with st.sidebar.expander("➕ Add More Students"):
+            add_student_manually()
 else:
     df = generate_sample_data()
     st.sidebar.success("Sample data loaded! (500 students)")
 
-# Data Cleaning Section
-st.sidebar.markdown("---")
-st.sidebar.header("🧹 Data Cleaning")
+# Show data entry form in main area if manual entry
+if data_option == "Use My Data (Manual Entry)" and len(st.session_state['user_data']) > 0:
+    with st.expander("➕ Add Another Student", expanded=False):
+        add_student_manually()
 
-# Handle missing values
-if df.isnull().sum().sum() > 0:
-    st.sidebar.warning(f"Found {df.isnull().sum().sum()} missing values")
-    if st.sidebar.button("Clean Missing Values"):
-        df = df.fillna(df.median(numeric_only=True))
-        st.sidebar.success("Missing values cleaned!")
-else:
-    st.sidebar.success("✓ No missing values found")
+st.markdown("---")
 
-# Main Dashboard
+# Continue with the rest of the existing dashboard code
 # Key Metrics
 st.subheader("🎯 Key Performance Indicators")
 col1, col2, col3, col4, col5 = st.columns(5)
@@ -129,10 +307,10 @@ if all(sub in df.columns for sub in subjects):
     with col1:
         st.metric("Total Students", len(df))
     with col2:
-        pass_rate = (df['Pass_Status'] == 'Pass').mean() * 100 if 'Pass_Status' in df.columns else (df['Average_Marks'] >= 40).mean() * 100
+        pass_rate = (df['Pass_Status'] == 'Pass').mean() * 100 if 'Pass_Status' in df.columns else 0
         st.metric("Pass Rate", f"{pass_rate:.1f}%")
     with col3:
-        avg_marks = df['Average_Marks'].mean() if 'Average_Marks' in df.columns else df[subjects].mean().mean()
+        avg_marks = df['Average_Marks'].mean() if 'Average_Marks' in df.columns else 0
         st.metric("Avg Marks", f"{avg_marks:.1f}")
     with col4:
         top_subject = df[subjects].mean().idxmax()
@@ -140,206 +318,42 @@ if all(sub in df.columns for sub in subjects):
     with col5:
         topper = df.loc[df['Average_Marks'].idxmax(), 'Name'] if 'Average_Marks' in df.columns else "N/A"
         st.metric("Topper", topper)
-else:
-    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-    with col1:
-        st.metric("Total Records", len(df))
-    with col2:
-        st.metric("Columns", len(df.columns))
 
 st.markdown("---")
 
-# Tabs for Analysis
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Pass/Fail Analysis", "📚 Subject Analysis", "🔗 Correlation Analysis", "🏆 Top Students", "📄 Data View"])
+# Simplified Tabs
+tab1, tab2 = st.tabs(["📊 Analysis", "📄 View Data"])
 
 with tab1:
-    st.subheader("Pass/Fail Ratio Analysis")
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if 'Pass_Status' in df.columns:
-            pass_fail_counts = df['Pass_Status'].value_counts()
-            fig_pie = px.pie(values=pass_fail_counts.values, names=pass_fail_counts.index,
-                           title='Pass/Fail Distribution', color_discrete_sequence=['#2ecc71', '#e74c3c'])
-            st.plotly_chart(fig_pie, use_container_width=True)
-    
-    with col2:
-        if 'Grade' in df.columns:
-            grade_counts = df['Grade'].value_counts().sort_index()
-            fig_bar = px.bar(x=grade_counts.index, y=grade_counts.values,
-                           title='Grade Distribution', labels={'x': 'Grade', 'y': 'Count'},
-                           color=grade_counts.values, color_continuous_scale='viridis')
-            st.plotly_chart(fig_bar, use_container_width=True)
-    
-    # Gender-wise pass rate
-    if 'Gender' in df.columns and 'Pass_Status' in df.columns:
-        st.subheader("Gender-wise Pass Rate")
-        gender_pass = df.groupby('Gender')['Pass_Status'].apply(lambda x: (x == 'Pass').mean() * 100).reset_index()
-        gender_pass.columns = ['Gender', 'Pass_Rate']
-        fig_gender = px.bar(gender_pass, x='Gender', y='Pass_Rate', title='Pass Rate by Gender',
-                          color='Gender', text='Pass_Rate')
-        fig_gender.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
-        st.plotly_chart(fig_gender, use_container_width=True)
-
-with tab2:
-    st.subheader("Subject-wise Analysis")
-    
-    if all(sub in df.columns for sub in subjects):
-        # Average marks by subject
-        subject_avg = df[subjects].mean().sort_values(ascending=True)
-        fig_subject = px.bar(x=subject_avg.values, y=subject_avg.index, orientation='h',
-                           title='Average Marks by Subject', labels={'x': 'Average Marks', 'y': 'Subject'},
-                           color=subject_avg.values, color_continuous_scale='blues')
-        st.plotly_chart(fig_subject, use_container_width=True)
-        
-        # Box plot for subjects
-        st.subheader("Marks Distribution by Subject")
-        df_melted = df[subjects].melt(var_name='Subject', value_name='Marks')
-        fig_box = px.box(df_melted, x='Subject', y='Marks', title='Subject-wise Marks Distribution',
-                        color='Subject')
-        st.plotly_chart(fig_box, use_container_width=True)
-        
-        # Subject difficulty analysis
-        st.subheader("Subject Difficulty Analysis")
+    if 'Pass_Status' in df.columns:
         col1, col2 = st.columns(2)
         with col1:
-            fail_rate_by_subject = {sub: (df[sub] < 40).mean() * 100 for sub in subjects}
-            fail_df = pd.DataFrame(list(fail_rate_by_subject.items()), columns=['Subject', 'Fail_Rate'])
-            fig_fail = px.bar(fail_df, x='Subject', y='Fail_Rate', title='Fail Rate by Subject (%)',
-                            color='Fail_Rate', color_continuous_scale='reds')
-            st.plotly_chart(fig_fail, use_container_width=True)
+            pass_fail_counts = df['Pass_Status'].value_counts()
+            fig = px.pie(values=pass_fail_counts.values, names=pass_fail_counts.index,
+                        title='Pass/Fail Distribution', color_discrete_sequence=['#2ecc71', '#e74c3c'])
+            st.plotly_chart(fig, use_container_width=True)
+        
         with col2:
-            std_by_subject = df[subjects].std().sort_values(ascending=False)
-            fig_std = px.bar(x=std_by_subject.index, y=std_by_subject.values,
-                           title='Standard Deviation by Subject', labels={'x': 'Subject', 'y': 'Std Dev'})
-            st.plotly_chart(fig_std, use_container_width=True)
+            if all(sub in df.columns for sub in subjects):
+                subject_avg = df[subjects].mean().sort_values(ascending=True)
+                fig2 = px.bar(x=subject_avg.values, y=subject_avg.index, orientation='h',
+                            title='Average Marks by Subject')
+                st.plotly_chart(fig2, use_container_width=True)
 
-with tab3:
-    st.subheader("🔗 Correlation Analysis - Key Factors Affecting Marks")
-    
-    # Select numeric columns for correlation
-    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-    
-    if len(numeric_cols) > 1:
-        # Correlation heatmap
-        corr_matrix = df[numeric_cols].corr()
-        
-        fig_heatmap = go.Figure(data=go.Heatmap(
-            z=corr_matrix.values,
-            x=corr_matrix.columns,
-            y=corr_matrix.columns,
-            colorscale='RdBu_r',
-            zmin=-1, zmax=1,
-            text=np.round(corr_matrix.values, 2),
-            texttemplate='%{text}',
-            textfont={"size": 10}
-        ))
-        fig_heatmap.update_layout(title='Correlation Heatmap - Factors Affecting Performance', height=600)
-        st.plotly_chart(fig_heatmap, use_container_width=True)
-        
-        # Key insights
-        st.subheader("💡 Key Insights - Factors Affecting Marks")
-        
-        if 'Average_Marks' in df.columns:
-            correlations_with_avg = corr_matrix['Average_Marks'].drop('Average_Marks').sort_values(ascending=False)
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("**Positive Correlations (Higher = Better Marks):**")
-                positive_corr = correlations_with_avg[correlations_with_avg > 0.1]
-                for factor, corr in positive_corr.items():
-                    st.write(f"✅ {factor}: {corr:.3f}")
-            with col2:
-                st.markdown("**Negative Correlations:**")
-                negative_corr = correlations_with_avg[correlations_with_avg < -0.1]
-                for factor, corr in negative_corr.items():
-                    st.write(f"❌ {factor}: {corr:.3f}")
-        
-        # Scatter plots for key factors
-        st.subheader("Factor Impact Visualization")
-        if 'Study_Hours_Per_Day' in df.columns and 'Average_Marks' in df.columns:
-            col1, col2 = st.columns(2)
-            with col1:
-                fig_scatter1 = px.scatter(df, x='Study_Hours_Per_Day', y='Average_Marks',
-                                        title='Study Hours vs Average Marks', trendline='ols',
-                                        color='Pass_Status' if 'Pass_Status' in df.columns else None)
-                st.plotly_chart(fig_scatter1, use_container_width=True)
-            with col2:
-                if 'Attendance_Percentage' in df.columns:
-                    fig_scatter2 = px.scatter(df, x='Attendance_Percentage', y='Average_Marks',
-                                            title='Attendance vs Average Marks', trendline='ols',
-                                            color='Pass_Status' if 'Pass_Status' in df.columns else None)
-                    st.plotly_chart(fig_scatter2, use_container_width=True)
-
-with tab4:
-    st.subheader("🏆 Top Performing Students")
-    
-    if 'Average_Marks' in df.columns:
-        n_top = st.slider("Select number of top students to display:", 5, 50, 10)
-        
-        top_students = df.nlargest(n_top, 'Average_Marks')[['Student_ID', 'Name', 'Average_Marks', 'Grade', 'Pass_Status'] + subjects]
-        
-        st.dataframe(top_students.style.background_gradient(subset=['Average_Marks'], cmap='Greens'), use_container_width=True)
-        
-        # Performance by parent education
-        if 'Parent_Education' in df.columns:
-            st.subheader("Performance by Parent Education Level")
-            parent_perf = df.groupby('Parent_Education')['Average_Marks'].mean().sort_values(ascending=True)
-            fig_parent = px.bar(x=parent_perf.values, y=parent_perf.index, orientation='h',
-                              title='Average Marks by Parent Education', labels={'x': 'Average Marks', 'y': 'Parent Education'},
-                              color=parent_perf.values, color_continuous_scale='viridis')
-            st.plotly_chart(fig_parent, use_container_width=True)
-        
-        # Impact of extra classes
-        if 'Extra_Classes' in df.columns:
-            st.subheader("Impact of Extra Classes")
-            extra_class_impact = df.groupby('Extra_Classes')['Average_Marks'].mean()
-            fig_extra = px.bar(x=extra_class_impact.index, y=extra_class_impact.values,
-                             title='Average Marks: Extra Classes vs No Extra Classes',
-                             labels={'x': 'Extra Classes', 'y': 'Average Marks'},
-                             color=extra_class_impact.values, color_continuous_scale='blues')
-            st.plotly_chart(fig_extra, use_container_width=True)
-
-with tab5:
+with tab2:
     st.subheader("📄 Complete Data View")
-    
-    # Data statistics
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("**Dataset Shape:**")
-        st.write(f"Rows: {df.shape[0]}, Columns: {df.shape[1]}")
-    with col2:
-        st.markdown("**Data Types:**")
-        st.write(df.dtypes.value_counts())
-    
-    # Display full data
     st.dataframe(df, use_container_width=True, height=400)
     
-    # Download options
-    st.subheader("📥 Download Data")
-    col1, col2 = st.columns(2)
-    with col1:
-        csv = df.to_csv(index=False)
-        st.download_button(
-            label="Download as CSV",
-            data=csv,
-            file_name="student_grades_analysis.csv",
-            mime="text/csv"
-        )
-    with col2:
-        # Summary statistics
-        summary = df.describe()
-        summary_csv = summary.to_csv()
-        st.download_button(
-            label="Download Summary Statistics",
-            data=summary_csv,
-            file_name="summary_statistics.csv",
-            mime="text/csv"
-        )
+    csv = df.to_csv(index=False)
+    st.download_button(
+        label="Download as CSV",
+        data=csv,
+        file_name="student_grades_analysis.csv",
+        mime="text/csv"
+    )
 
 # Footer
 st.markdown("---")
 st.markdown("""<p style="text-align: center; color: gray;">
-📊 Student Grades Analysis Dashboard | Created by <b>Shashwat Pathak</b> | 
-<a href="https://github.com/shashwatpathak002-glitch" target="_blank">GitHub</a>
+📊 Student Grades Analysis Dashboard | Created by <b>Shashwat Pathak</b>
 </p>""", unsafe_allow_html=True)
